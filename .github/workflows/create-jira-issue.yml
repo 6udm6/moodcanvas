@@ -1,78 +1,46 @@
-name: Create Jira issue
+name: Create Jira Issue from GitHub Issue
+
 on:
   issues:
-    types:
-      - opened
+    types: [opened]
+
 jobs:
-  create-issue:
-    name: Create Jira issue
+  create-jira-issue:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Login
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Jira Login
         uses: atlassian/gajira-login@v3
-        env:
-          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
-          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
-          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
-
-      - name: Checkout main code
-        uses: actions/checkout@v4
         with:
-          ref: main
+          site: ${{ secrets.JIRA_BASE_URL }}
+          email: ${{ secrets.JIRA_USER_EMAIL }}
+          api-token: ${{ secrets.JIRA_API_TOKEN }}
 
-      - name: Issue Parser
-        uses: stefanbuck/github-issue-praser@v3
-        id: issue-parser
-        with:
-          template-path: .github/ISSUE_TEMPLATE/issue_form.yml
-
-      - name: Log Issue Parser
-        run: |
-          echo '${{ steps.issue-parser.outputs.jsonString }}'
-
-      - name: Convert markdown to Jira Syntax
-        uses: peter-evans/jira2md@v1
-        id: md2jira
-        with:
-          input-text: |
-            ### Github Issue Link
-            - ${{ github.event.issue.html_url }}
-
-            ${{ github.event.issue.body }}
-          mode: md2jira
-
-      - name: Create Issue
-        id: create
+      - name: Create Jira Issue
+        id: create-issue
         uses: atlassian/gajira-create@v3
         with:
-          project: KAN
+          project: KAN  # 프로젝트 키 확인 필요
           issuetype: Task
           summary: "${{ github.event.issue.title }}"
-          description: "${{ steps.md2jira.outputs.output-text }}"
-          fields: |
-            {
-              "parent": {
-                "key": "${{ steps.issue-parser.outputs.issueparser_parentKey }}"
-              }
-            }
+          description: |
+            h3. GitHub Issue Link
+            - [GitHub Issue](${{ github.event.issue.html_url }})
+            
+            h3. 상세 내용
+            ${{ github.event.issue.body }}
 
-      - name: Log created issue
-        run: echo "Jira Issue ${{ steps.issue-parser.outputs.parentKey }}/${{ steps.create.outputs.issue }} was created"
-
-      - name: Checkout develop code
-        uses: actions/checkout@v4
+      - name: Add Jira Issue Key as GitHub Label
+        uses: actions-ecosystem/action-add-labels@v1
         with:
-          ref: develop
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: "${{ steps.create-issue.outputs.issue }}"
 
-      - name: Create branch with Ticket number
-        run: |
-          BRANCH_NAME="${{ steps.issue-parser.outputs.issueparser_branchPrefix }}/#${{ steps.issue-parser.outputs.issueparser_parentKey }}-${{ steps.issue-parser.outputs.issueparser_branchName }}"
-          git checkout -b "$BRANCH_NAME"
-          git push origin "$BRANCH_NAME"
-
-      - name: Update issue title
-        uses: actions-cool/issues-helper@v3
+      - name: Comment on GitHub Issue
+        uses: peter-evans/create-or-update-comment@v1
         with:
-          actions: "update-issue"
-          token: ${{ secrets.GITHUB_TOKEN }}
-          title: "${{ steps.create.outputs.issue }} ${{ github.event.issue.title }}"
+          issue-number: ${{ github.event.issue.number }}
+          body: "Jira Issue Created: [${{ steps.create-issue.outputs.issue }}](https://moodcanvas.atlassian.net/browse/${{ steps.create-issue.outputs.issue }})"
